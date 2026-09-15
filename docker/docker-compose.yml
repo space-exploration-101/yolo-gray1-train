@@ -1,0 +1,32 @@
+name: ywang-yolo-gray1-train
+
+services:
+  trainer:
+    image: ywang/yolo-gray1-train:ultralytics-8.3.98-v1
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    user: "1012:1012"
+    working_dir: /workspace/src/Yolo_fine
+    environment:
+      HOME: /tmp
+      YOLO_CONFIG_DIR: /tmp/ultralytics
+      MPLCONFIGDIR: /tmp/matplotlib
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONNOUSERSITE: "1"
+      PYTHONPATH: /workspace/src/Yolo_fine/ultralytics
+    volumes:
+      - ../data:/workspace/data:ro
+      - ../weights:/workspace/weights
+      - ../runs:/workspace/runs
+      - /data3/ywang/yolo-pose-experiments:/experiments
+    read_only: true
+    tmpfs:
+      - /tmp:size=2g,mode=1777
+    shm_size: "64gb"
+    stdin_open: true
+    tty: true
+    command: ["/bin/bash"]
+
+# GPU access is intentionally absent here. Add a separately reviewed override
+# with an explicitly approved GPU UUID only after Step 11 passes.

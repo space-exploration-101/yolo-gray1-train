@@ -1,0 +1,15 @@
+# Direct runtime locks observed in chenshiwen's leo environment on 2026-09-09.
+# The Docker image is built from a read-only environment snapshot because the
+# package registry was unavailable. This file is provenance for later rebuilds.
+torch==2.8.0+cu128
+torchvision==0.23.0+cu128
+opencv-python==4.11.0.86
+opencv-python-headless==4.11.0.86
+numpy==1.26.4
+albumentations==2.0.8
+pillow==12.2.0
+PyYAML==6.0.3
+tqdm==4.67.3
+
+# Ultralytics is intentionally not installed from pip. The image copies the
+# ywang-owned, locally patched 8.3.98 source tree to /workspace/src/Yolo_fine.

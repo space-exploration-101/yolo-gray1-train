@@ -1,0 +1,14 @@
+.git
+.gitignore
+data
+runs
+weights
+docs
+docker/*.partial
+docker/*.tar.zst
+docker/*.tar.zst.sha256
+src/Yolo_fine/runs
+src/Yolo_fine/logs
+src/Yolo_fine/**/__pycache__
+src/Yolo_fine/**/*.pyc
+src/Yolo_fine/.git

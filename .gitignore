@@ -1,0 +1,23 @@
+# Large release artifacts are backed up on NAS.
+docker/yolo-runtime.tar.gz
+docker/yolo-gray1-train-ultralytics-8.3.98-v1.tar.zst
+src/Yolo_fine/ultralytics/yolov8x-pose-p6.pt
+
+# Generated files and local runs.
+*.partial
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+runs/
+logs/
+*.log
+
+# Editor and operating-system files.
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,12 @@
+{
+  "albumentations": "2.0.8",
+  "numpy": "1.26.4",
+  "opencv": "4.11.0",
+  "pillow": "12.2.0",
+  "python": "3.12.12",
+  "pyyaml": "6.0.3",
+  "torch": "2.8.0+cu128",
+  "torchvision": "0.23.0+cu128",
+  "tqdm": "4.67.3",
+  "ultralytics": "8.3.98"
+}
