@@ -1,6 +1,6 @@
 # 启动训练
 
-本文说明如何在 H200 上运行单卡 Gray1 训练烟测。正式镜像为：
+本文是端到端复现的第 2 步，说明如何在 H200 上运行单卡 Gray1 训练烟测。开始前必须完成[第 1 步：准备并校验数据](01_DATA_PREPARATION.md)。正式镜像为：
 
 ```text
 ywang/yolo-gray1-train:ultralytics-8.3.98-v1
@@ -112,10 +112,10 @@ sed -n '1,240p' /data3/ywang/yolo-gray1-train/run-gray1-training-smoke.sh
 
 ## 5. 常见问题
 
-- `dataset is not verified`：预处理校验没有成功完成，参见[数据预处理](DATA_PREPARATION.md)。
+- `dataset is not verified`：预处理校验没有成功完成，参见[准备并校验数据](01_DATA_PREPARATION.md)。
 - `GPU gate failed` 或检测到计算进程：换用确认空闲的 GPU，不能终止他人进程。
 - `run directory` 或容器名称已存在：生成新的 `RUN_ID`，不要复用旧目录。
 - 训练中断：保留运行目录和日志；重新烟测应使用新 `RUN_ID`。
 - TensorBoard graph 的 3 通道 warmup 警告不应再导致 final evaluation 失败；若再次出现通道异常，应保留完整日志并停止扩大训练规模。
 
-返回：[项目首页](../README.md) · 参数说明：[训练参数与配置](TRAINING_PARAMETERS.md)
+返回：[项目首页](../../README.md) · 下一步：[理解训练参数与配置](03_TRAINING_CONFIGURATION.md)

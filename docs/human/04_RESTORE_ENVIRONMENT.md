@@ -1,6 +1,6 @@
 # 环境恢复
 
-GitHub 保存源码和小文件；NAS 保存 Docker 镜像归档、离线运行时及未进入 Git 的大权重。恢复过程不需要 GPU，但会写入本地目录并可能导入 Docker 镜像。
+本文是端到端复现的第 4 步，也是新主机或环境丢失时的独立恢复手册。GitHub 保存源码和小文件；NAS 保存 Docker 镜像归档、离线运行时及未进入 Git 的大权重。恢复过程不需要 GPU，但会写入本地目录并可能导入 Docker 镜像。
 
 ## 1. 备份位置
 
@@ -129,6 +129,6 @@ cd "$RESTORE_ROOT"
 sha256sum -c RELEASE_SHA256SUMS
 ```
 
-静态校验和镜像检查通过后，再按照[启动训练](TRAINING.md)执行一次单卡 1 epoch 烟测。只有出现 `TRAINING_SMOKE_PASS`，才说明数据、GPU、训练、checkpoint 和 final evaluation 链路均已贯通。
+静态校验和镜像检查通过后，再按照[启动并验证训练](02_RUN_TRAINING.md)执行一次单卡 1 epoch 烟测。只有出现 `TRAINING_SMOKE_PASS`，才说明数据、GPU、训练、checkpoint 和 final evaluation 链路均已贯通。
 
-返回：[项目首页](../README.md)
+返回：[项目首页](../../README.md)

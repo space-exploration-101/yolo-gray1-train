@@ -147,4 +147,4 @@ printf 'GRAYPREP_REPO=%s\nRAW=%s\nPREP_RUN=%s\n' \
 ls -lah "$PREP_RUN"
 ```
 
-返回：[项目首页](../README.md) · 下一步：[启动训练](TRAINING.md)
+返回：[项目首页](../../README.md) · 下一步：[启动并验证训练](02_RUN_TRAINING.md)

@@ -1,5 +1,7 @@
 # 训练参数与配置
 
+本文是端到端复现的第 3 步，用于理解和审计训练参数。第一次复现请先完成[第 2 步：启动并验证训练](02_RUN_TRAINING.md)。
+
 ## 1. 参数覆盖顺序
 
 训练参数按以下顺序逐级覆盖，越靠后优先级越高：
@@ -65,7 +67,7 @@ HSV、旋转、平移、缩放、剪切、透视、翻转、mosaic、mixup、cop
 | `src/Yolo_fine/ultralytics/ultralytics/cfg/default.yaml` | 同一 `/workspace` 相对路径 | Ultralytics 未被覆盖的默认值 |
 | `$RUN_ROOT/experiments/$RUN_ID/args.yaml` | 运行时生成 | 本次训练最终生效参数 |
 | `docker/requirements.lock.txt` | 构建输入 | Python 依赖锁定清单 |
-| `docs/runtime-packages-ultralytics-8.3.98-v1.json` | 发布记录 | 关键运行时版本 |
+| `docs/agent/runtime-packages-ultralytics-8.3.98-v1.json` | 发布记录 | 关键运行时版本 |
 
 模型和数据集必须共同保持：
 
@@ -90,4 +92,4 @@ sed -n '1,320p' src/Yolo_fine/ultralytics/ultralytics/cfg/default.yaml
 
 烟测脚本固定为单 GPU、1 epoch、batch 4 和 55 分钟硬超时。生产规模训练若增加 epoch、batch、worker 或运行时长，应重新评估共享 GPU、主机内存、`/dev/shm`、数据读取吞吐和输出空间。不得通过修改 `imgsz`、通道数、类别数或关键点形状绕过 Gray1 ABI。
 
-返回：[项目首页](../README.md) · 运行方法：[启动训练](TRAINING.md)
+返回：[项目首页](../../README.md) · 上一步：[启动并验证训练](02_RUN_TRAINING.md) · 下一步：[恢复环境](04_RESTORE_ENVIRONMENT.md)
