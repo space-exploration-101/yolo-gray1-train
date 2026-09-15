@@ -5,8 +5,8 @@
 | 内容 | 位置 |
 |---|---|
 | 源码、小配置和说明 | `https://github.com/space-exploration-101/yolo-gray1-train` |
-| H200 正式仓库 | `/data3/ywang/yolo-gray1-train` |
-| H200 NAS 备份 | `/mnt/ywang-nas/0-项目/13-专项/4-代码/训练平台/yolo-gray1-train` |
+| H200 仓库 | 任意用户可写位置；用 `git rev-parse --show-toplevel` 获取 |
+| H200 NAS 备份 | `$NAS_MOUNT/0-项目/13-专项/4-代码/训练平台/yolo-gray1-train` |
 | Windows NAS 路径 | `\\10.2.26.26\902_data\0-项目\13-专项\4-代码\训练平台\yolo-gray1-train` |
 
 NAS 中的正式大文件：
@@ -20,8 +20,9 @@ NAS 中的正式大文件：
 恢复前只读门禁：
 
 ```bash
-NAS_ROOT='/mnt/ywang-nas/0-项目/13-专项/4-代码/训练平台/yolo-gray1-train'
-findmnt -T /mnt/ywang-nas
+NAS_MOUNT='<absolute-mounted-902_data-path>'
+NAS_ROOT="$NAS_MOUNT/0-项目/13-专项/4-代码/训练平台/yolo-gray1-train"
+findmnt -T "$NAS_MOUNT"
 test -r "$NAS_ROOT/VERIFIED"
 cd "$NAS_ROOT"
 sha256sum -c SHA256SUMS

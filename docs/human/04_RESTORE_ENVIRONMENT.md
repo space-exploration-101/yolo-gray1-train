@@ -16,8 +16,7 @@ NAS：
 Windows:
 \\10.2.26.26\902_data\0-项目\13-专项\4-代码\训练平台\yolo-gray1-train
 
-H200:
-/mnt/ywang-nas/0-项目/13-专项/4-代码/训练平台/yolo-gray1-train
+H200：NAS 的实际挂载点由管理员或当前用户决定，挂载后将其赋给 `NAS_MOUNT`。
 ```
 
 NAS 备份包含：
@@ -32,13 +31,15 @@ NAS 备份包含：
 确认 NAS 确实挂载、可读且目标备份完成：
 
 ```bash
-ssh H200
+ssh '<h200-host>'
 
-NAS_ROOT='/mnt/ywang-nas/0-项目/13-专项/4-代码/训练平台/yolo-gray1-train'
-findmnt -T /mnt/ywang-nas
+WORK_ROOT='<absolute-writable-workspace>'
+NAS_MOUNT='<absolute-mounted-902_data-path>'
+NAS_ROOT="$NAS_MOUNT/0-项目/13-专项/4-代码/训练平台/yolo-gray1-train"
+findmnt -T "$NAS_MOUNT"
 test -r "$NAS_ROOT/VERIFIED"
 test -r "$NAS_ROOT/SHA256SUMS"
-df -h /data3 /data1 /mnt/ywang-nas
+df -h "$WORK_ROOT" "$NAS_MOUNT"
 ```
 
 如果 `findmnt` 没有显示预期 SMB 文件系统，应先按主机运维流程挂载 NAS；不要把空的本地挂载点误当成 NAS。恢复到新目录，目标已存在时停止，不覆盖旧内容。
@@ -60,7 +61,7 @@ find . -name '*.partial' -print
 选择一个不存在的新目录：
 
 ```bash
-RESTORE_ROOT=/data3/ywang/yolo-gray1-train-restored
+RESTORE_ROOT="$WORK_ROOT/yolo-gray1-train-restored"
 test ! -e "$RESTORE_ROOT"
 git clone https://github.com/space-exploration-101/yolo-gray1-train.git "$RESTORE_ROOT"
 cd "$RESTORE_ROOT"

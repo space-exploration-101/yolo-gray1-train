@@ -1,20 +1,12 @@
 # 数据预处理
 
-本文说明当前已经验证的有界烟测预处理流程。命令均在 H200 宿主机执行，不需要 GPU。
+本文说明当前已经在 H200 上验证的有界烟测预处理流程。命令均在 H200 宿主机执行，不需要 GPU；仓库、原始数据和输出目录由操作者自行选择，不依赖特定用户名。
 
 ## 1. 输入与输出契约
 
-默认烟测原始数据位于：
+数据预处理实现位于独立仓库：[space-exploration-101/yolo-gray1-data-pipeline](https://github.com/space-exploration-101/yolo-gray1-data-pipeline)。该仓库不包含业务数据或完整数据集；操作者必须提供自己的原始数据目录，并根据仓库说明明确源图语义（例如 `native_gray`、`r_only` 或 `color_to_gray`）。预处理会输出真正的单通道 `gray1` 图像。
 
-```text
-/data1/ywang/workflow-test/synthetic-pose21-r-only-v1/raw
-```
-
-它是为工作流验证生成的 21 类合成数据，不是业务生产数据。源图语义为 `r_only`；预处理将其转换为真正的单通道 `gray1` 图像。数据预处理实现位于独立仓库：
-
-```text
-/data3/ywang/yolo-gray1-data-pipeline
-```
+此前端到端验证使用的是 21 类合成烟测数据，不是业务生产数据。它只证明 H200 上的软件链路能够贯通，不应作为新用户必须拥有的固定路径或数据来源。
 
 训练输入必须是已经严格校验的 prepared dataset：
 
@@ -43,20 +35,27 @@ kpt_shape: [2, 3]
 每次运行使用新目录，禁止覆盖已有结果：
 
 ```bash
-ssh H200
+ssh '<h200-host>'
 
+WORK_ROOT='<absolute-writable-workspace>'
+RUNS_ROOT='<absolute-writable-runs-directory>'
+RAW='<absolute-raw-dataset-directory>'
 RUN_ID="prep_$(date +%Y%m%d_%H%M%S)"
-GRAYPREP_REPO=/data3/ywang/yolo-gray1-data-pipeline
-RAW=/data1/ywang/workflow-test/synthetic-pose21-r-only-v1/raw
-PREP_RUN="/data1/ywang/workflow-test/runs/$RUN_ID"
+GRAYPREP_REPO="$WORK_ROOT/yolo-gray1-data-pipeline"
+PREP_RUN="$RUNS_ROOT/$RUN_ID"
 
-test -d "$GRAYPREP_REPO"
+test -d "$WORK_ROOT"
+test -d "$RUNS_ROOT"
 test -d "$RAW"
+test ! -e "$GRAYPREP_REPO"
+git clone https://github.com/space-exploration-101/yolo-gray1-data-pipeline.git \
+  "$GRAYPREP_REPO"
+test -d "$GRAYPREP_REPO"
 test ! -e "$PREP_RUN"
 mkdir -p "$PREP_RUN"
 ```
 
-这些变量只在当前 shell 中有效。后续命令必须在同一个终端执行；重新登录后需要重新设置。
+如果仓库已经克隆，不要再次执行 `git clone`，直接把 `GRAYPREP_REPO` 指向现有目录。以上变量只在当前 shell 中有效；后续命令必须在同一个终端执行，重新登录后需要重新设置。
 
 ## 3. 确定性选择烟测样本
 

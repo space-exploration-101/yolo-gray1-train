@@ -17,13 +17,14 @@
 | 运行时版本记录 | `docs/agent/runtime-packages-ultralytics-8.3.98-v1.json` |
 | 发布目录校验和 | `RELEASE_SHA256SUMS` |
 | 人类端到端说明 | `docs/human/01_DATA_PREPARATION.md` 至 `04_RESTORE_ENVIRONMENT.md` |
-| 数据预处理实现 | `/data3/ywang/yolo-gray1-data-pipeline`（独立仓库） |
+| 数据预处理实现 | `https://github.com/space-exploration-101/yolo-gray1-data-pipeline`（独立仓库） |
 | 正式大文件备份 | 见 `docs/agent/BACKUP_LOCATIONS.md` |
 
 优先执行窄范围查询：
 
 ```bash
-cd /data3/ywang/yolo-gray1-train
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
 git status --short
 rg -n '<parameter-or-symbol>' \
   run-gray1-training-smoke.sh \

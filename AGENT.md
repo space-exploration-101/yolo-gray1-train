@@ -24,7 +24,7 @@
 
 ## 当前硬约束
 
-- 正式目录：`/data3/ywang/yolo-gray1-train`
+- 已验证运行环境：NVIDIA H200；仓库位置使用 `REPO_ROOT=$(git rev-parse --show-toplevel)` 获取
 - 正式镜像：`ywang/yolo-gray1-train:ultralytics-8.3.98-v1`
 - 模型输入：`gray1 [B,1,1280,1280]`
 - 模型契约：`ch: 1`、`nc: 21`、`kpt_shape: [2, 3]`

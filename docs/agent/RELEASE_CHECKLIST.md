@@ -5,7 +5,8 @@
 ## 先按改动定位文档
 
 ```bash
-cd /data3/ywang/yolo-gray1-train
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
 git status --short
 git diff --name-only
 git diff --cached --name-only

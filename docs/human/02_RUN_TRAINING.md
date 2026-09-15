@@ -1,6 +1,6 @@
 # 启动训练
 
-本文是端到端复现的第 2 步，说明如何在 H200 上运行单卡 Gray1 训练烟测。开始前必须完成[第 1 步：准备并校验数据](01_DATA_PREPARATION.md)。正式镜像为：
+本文是端到端复现的第 2 步，说明如何在 H200 上运行单卡 Gray1 训练烟测。开始前必须完成[第 1 步：准备并校验数据](01_DATA_PREPARATION.md)。所有路径均由当前操作者选择，不依赖特定用户名。正式镜像为：
 
 ```text
 ywang/yolo-gray1-train:ultralytics-8.3.98-v1
@@ -11,10 +11,13 @@ ywang/yolo-gray1-train:ultralytics-8.3.98-v1
 登录 H200，进入正式仓库并指定 prepared dataset：
 
 ```bash
-ssh H200
-cd /data3/ywang/yolo-gray1-train
+ssh '<h200-host>'
 
-DATASET='<prepared-dataset>'
+REPO_ROOT='<absolute-path-to-yolo-gray1-train>'
+RUNS_ROOT='<absolute-writable-runs-directory>'
+DATASET='<absolute-prepared-dataset-directory>'
+cd "$REPO_ROOT"
+
 test -f "$DATASET/VERIFIED"
 test -f "$DATASET/dataset.yaml"
 test -d "$DATASET/images/train"
@@ -24,11 +27,7 @@ test -d "$DATASET/labels/val"
 docker image inspect ywang/yolo-gray1-train:ultralytics-8.3.98-v1 >/dev/null
 ```
 
-若使用随工作流发布的合成烟测集：
-
-```bash
-DATASET=/data1/ywang/workflow-test/synthetic-pose21-r-only-v1/prepared
-```
+本仓库不包含默认数据集。可以使用上一节新生成的 `$PREP_RUN/prepared`，也可以指定满足同一契约的其他 prepared dataset。
 
 H200 是共享服务器。选卡前同时检查利用率、显存、计算进程和进程所有者，不能仅凭一次 `0%` 判断空闲：
 
@@ -52,7 +51,8 @@ ps -o user,pid,etime,stat,cmd -p '<gpu-process-pid>'
 GPU_UUID='<confirmed-idle-gpu-uuid>'
 RUN_ID="gray1_smoke_$(date +%Y%m%d_%H%M%S)"
 
-./run-gray1-training-smoke.sh "$GPU_UUID" "$DATASET" "$RUN_ID"
+TRAIN_RUNS_ROOT="$RUNS_ROOT" \
+  ./run-gray1-training-smoke.sh "$GPU_UUID" "$DATASET" "$RUN_ID"
 ```
 
 脚本会完成以下操作：
@@ -65,12 +65,14 @@ RUN_ID="gray1_smoke_$(date +%Y%m%d_%H%M%S)"
 
 第三个参数可省略；脚本会自动生成 `e2e_smoke_<timestamp>`。已有运行目录或容器名称不会被覆盖。
 
+`TRAIN_RUNS_ROOT` 必须是当前用户可写的绝对路径。未显式设置时，脚本默认使用执行命令时所在目录下的 `runs/`。
+
 ## 3. 输出和成功条件
 
 运行根目录：
 
 ```text
-/data1/ywang/workflow-test/runs/<RUN_ID>/
+$RUNS_ROOT/<RUN_ID>/
 ```
 
 主要产物：
@@ -91,7 +93,7 @@ TRAINING_SMOKE_PASS model=<absolute-path-to-best.pt>
 手工复核：
 
 ```bash
-RUN_ROOT="/data1/ywang/workflow-test/runs/$RUN_ID"
+RUN_ROOT="$RUNS_ROOT/$RUN_ID"
 MODEL="$RUN_ROOT/experiments/$RUN_ID/weights/best.pt"
 test -s "$MODEL"
 sha256sum "$MODEL"
@@ -105,7 +107,7 @@ cat "$RUN_ROOT/experiments/$RUN_ID/args.yaml"
 通常应使用脚本。需要审计或排错时，可以查看它生成的完整命令：
 
 ```bash
-sed -n '1,240p' /data3/ywang/yolo-gray1-train/run-gray1-training-smoke.sh
+sed -n '1,240p' "$REPO_ROOT/run-gray1-training-smoke.sh"
 ```
 
 其中关键隔离措施包括：数据集只读挂载、实验目录可写、容器根文件系统只读、无网络、单 GPU UUID 绑定以及 55 分钟硬超时。容器只看见所选的一张卡，所以训练参数使用 `--device 0`。

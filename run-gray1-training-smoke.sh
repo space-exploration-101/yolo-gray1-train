@@ -5,11 +5,18 @@ TRAIN_IMAGE="ywang/yolo-gray1-train:ultralytics-8.3.98-v1"
 GPU_UUID="${1:-}"
 TRAIN_DATASET="${2:-}"
 TRAIN_RUN_ID="${3:-e2e_smoke_$(date +%Y%m%d_%H%M%S)}"
-TRAIN_RUN_ROOT="/data1/ywang/workflow-test/runs/${TRAIN_RUN_ID}"
-CONTAINER_NAME="ywang-${TRAIN_RUN_ID}"
+TRAIN_RUNS_ROOT="${TRAIN_RUNS_ROOT:-${PWD}/runs}"
+TRAIN_RUN_ROOT="${TRAIN_RUNS_ROOT%/}/${TRAIN_RUN_ID}"
+CONTAINER_NAME="gray1-train-${TRAIN_RUN_ID}"
 
 if [[ -z "$GPU_UUID" || -z "$TRAIN_DATASET" ]]; then
   echo "Usage: $0 <gpu-uuid> <prepared-dataset-path> [run-id]" >&2
+  echo "Optional environment: TRAIN_RUNS_ROOT=<absolute-writable-runs-directory>" >&2
+  exit 2
+fi
+
+if [[ "$TRAIN_RUNS_ROOT" != /* ]]; then
+  echo "ERROR: TRAIN_RUNS_ROOT must be an absolute path: $TRAIN_RUNS_ROOT" >&2
   exit 2
 fi
 
@@ -78,6 +85,7 @@ trap cleanup_container EXIT INT TERM
 echo "TRAIN_IMAGE=$TRAIN_IMAGE"
 echo "TRAIN_DATASET=$TRAIN_DATASET"
 echo "TRAIN_RUN_ID=$TRAIN_RUN_ID"
+echo "TRAIN_RUNS_ROOT=$TRAIN_RUNS_ROOT"
 echo "TRAIN_RUN_ROOT=$TRAIN_RUN_ROOT"
 echo "GPU_UUID=$GPU_UUID"
 

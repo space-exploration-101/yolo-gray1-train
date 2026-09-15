@@ -23,16 +23,10 @@ names: [...]            # 恰好 21 项
 |---|---|
 | 数据 YAML 校验 | `src/Yolo_fine/train_yolov8x_p6_pose_gray1.py::validate_args` |
 | 模型通道、类别和关键点 | `src/Yolo_fine/configs/yolov8x-pose-p6-gray1.yaml` |
-| 预处理配置和实现 | `/data3/ywang/yolo-gray1-data-pipeline` |
+| 预处理配置和实现 | `https://github.com/space-exploration-101/yolo-gray1-data-pipeline` |
 | 人类操作步骤 | `docs/human/01_DATA_PREPARATION.md` |
 
-默认工作流烟测集：
-
-```text
-/data1/ywang/workflow-test/synthetic-pose21-r-only-v1/prepared
-```
-
-它是 21 类合成测试数据，只用于验证链路，不是业务生产数据。不要从该数据的内容推断真实业务样本来源。
+本仓库不附带默认数据集。已验证环境曾使用 21 类合成测试数据贯通 H200 软件链路，但该数据不是业务生产数据，也不是可移植接口的一部分。回答数据来源问题时应要求用户提供或确认当前 `DATASET`，不要从历史路径推断。
 
 最小只读检查：
 

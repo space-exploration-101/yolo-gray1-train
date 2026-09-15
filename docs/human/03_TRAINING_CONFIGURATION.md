@@ -82,7 +82,8 @@ input_semantics: gray1
 查看关键配置：
 
 ```bash
-cd /data3/ywang/yolo-gray1-train
+REPO_ROOT='<absolute-path-to-yolo-gray1-train>'
+cd "$REPO_ROOT"
 sed -n '1,240p' src/Yolo_fine/train_yolov8x_p6_pose_gray1.py
 sed -n '1,260p' src/Yolo_fine/configs/yolov8x-pose-p6-gray1.yaml
 sed -n '1,320p' src/Yolo_fine/ultralytics/ultralytics/cfg/default.yaml
