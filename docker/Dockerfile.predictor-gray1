@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1
+# Overlay on the accepted 50e training image. Do not retag or overwrite v1.
+
+FROM ywang/yolo-gray1-train:ultralytics-8.3.98-v1
+
+LABEL org.opencontainers.image.title="ywang YOLO gray1 train runtime with predictor gray1 preprocess" \
+      org.opencontainers.image.version="ultralytics-8.3.98-v1-predictor-gray1" \
+      org.opencontainers.image.base.name="ywang/yolo-gray1-train:ultralytics-8.3.98-v1"
+
+COPY src/Yolo_fine/ultralytics/ultralytics/engine/predictor.py \
+     /workspace/src/Yolo_fine/ultralytics/ultralytics/engine/predictor.py
