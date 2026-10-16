@@ -3,7 +3,7 @@
 本文是端到端复现的第 2 步，说明如何在 H200 上运行单卡 Gray1 训练烟测。开始前必须完成[第 1 步：准备并校验数据](01_DATA_PREPARATION.md)。所有路径均由当前操作者选择，不依赖特定用户名。正式镜像为：
 
 ```text
-ywang/yolo-gray1-train:ultralytics-8.3.98-v1
+yolo-gray1:1280-train-predict-20261016
 ```
 
 ## 1. 训练前检查
@@ -24,7 +24,7 @@ test -d "$DATASET/images/train"
 test -d "$DATASET/images/val"
 test -d "$DATASET/labels/train"
 test -d "$DATASET/labels/val"
-docker image inspect ywang/yolo-gray1-train:ultralytics-8.3.98-v1 >/dev/null
+docker image inspect yolo-gray1:1280-train-predict-20261016 >/dev/null
 ```
 
 本仓库不包含默认数据集。可以使用上一节新生成的 `$PREP_RUN/prepared`，也可以指定满足同一契约的其他 prepared dataset。

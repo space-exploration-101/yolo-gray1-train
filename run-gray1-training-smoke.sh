@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TRAIN_IMAGE="ywang/yolo-gray1-train:ultralytics-8.3.98-v1"
+TRAIN_IMAGE="${TRAIN_IMAGE:-yolo-gray1:1280-train-predict-20261016}"
 GPU_UUID="${1:-}"
 TRAIN_DATASET="${2:-}"
 TRAIN_RUN_ID="${3:-e2e_smoke_$(date +%Y%m%d_%H%M%S)}"

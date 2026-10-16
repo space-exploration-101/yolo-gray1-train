@@ -39,7 +39,7 @@ docker run --rm \
   --network none \
   --read-only \
   --entrypoint python \
-  ywang/yolo-gray1-train:ultralytics-8.3.98-v1 \
+  yolo-gray1:1280-train-predict-20261016 \
   /workspace/src/Yolo_fine/train_yolov8x_p6_pose_gray1.py \
   --help
 ```

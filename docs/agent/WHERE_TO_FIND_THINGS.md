@@ -13,10 +13,11 @@
 | Validator 单通道适配 | `src/Yolo_fine/ultralytics/ultralytics/engine/validator.py` |
 | 图像转 tensor 的连续化适配 | `src/Yolo_fine/ultralytics/ultralytics/data/augment.py` |
 | Docker 构建定义 | `docker/Dockerfile` |
+| 完整构建依赖与打包步骤 | `docs/human/05_BUILD_IMAGE.md` |
 | Python 依赖锁定 | `docker/requirements.lock.txt` |
 | 运行时版本记录 | `docs/agent/runtime-packages-ultralytics-8.3.98-v1.json` |
 | 发布目录校验和 | `RELEASE_SHA256SUMS` |
-| 人类端到端说明 | `docs/human/01_DATA_PREPARATION.md` 至 `04_RESTORE_ENVIRONMENT.md` |
+| 人类端到端说明 | `docs/human/01_DATA_PREPARATION.md` 至 `05_BUILD_IMAGE.md` |
 | 数据预处理实现 | `https://github.com/space-exploration-101/yolo-gray1-data-pipeline`（独立仓库） |
 | 正式大文件备份 | 见 `docs/agent/BACKUP_LOCATIONS.md` |
 

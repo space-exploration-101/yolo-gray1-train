@@ -5,7 +5,7 @@
 正式镜像：
 
 ```text
-ywang/yolo-gray1-train:ultralytics-8.3.98-v1
+yolo-gray1:1280-train-predict-20261016
 ```
 
 本仓库保存训练代码、容器定义和小型配置文件。Docker 镜像归档、离线运行时与模型权重等大文件保存在 NAS，不进入 GitHub。
@@ -18,6 +18,7 @@ ywang/yolo-gray1-train:ultralytics-8.3.98-v1
 2. [启动并验证训练](docs/human/02_RUN_TRAINING.md)
 3. [理解训练参数与配置](docs/human/03_TRAINING_CONFIGURATION.md)
 4. [从 GitHub 和 NAS 恢复环境](docs/human/04_RESTORE_ENVIRONMENT.md)
+5. [完整镜像打包与依赖文件](docs/human/05_BUILD_IMAGE.md)
 
 烟测只验证环境、数据、训练、checkpoint 保存和 final evaluation 能否贯通，不用于验证模型精度。
 

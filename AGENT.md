@@ -25,7 +25,7 @@
 ## 当前硬约束
 
 - 已验证运行环境：NVIDIA H200；仓库位置使用 `REPO_ROOT=$(git rev-parse --show-toplevel)` 获取
-- 正式镜像：`ywang/yolo-gray1-train:ultralytics-8.3.98-v1`
+- 正式镜像：`yolo-gray1:1280-train-predict-20261016`，完整 ID 为 `sha256:79b0086e39b83c8a3bbb76bfe2df1d8683bd443a6bef19ee7d2e69f096033635`
 - 模型输入：`gray1 [B,1,1280,1280]`
 - 模型契约：`ch: 1`、`nc: 21`、`kpt_shape: [2, 3]`
 - 标准烟测：单张空闲 GPU、1 epoch、55 分钟硬超时

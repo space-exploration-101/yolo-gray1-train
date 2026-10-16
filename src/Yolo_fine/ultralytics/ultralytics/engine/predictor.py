@@ -151,7 +151,11 @@ class BasePredictor:
         not_tensor = not isinstance(im, torch.Tensor)
         if not_tensor:
             im = np.stack(self.pre_transform(im))
-            im = im[..., ::-1].transpose((0, 3, 1, 2))  # BGR to RGB, BHWC to BCHW, (n, 3, h, w)
+            if im.ndim != 4 or im.shape[-1] not in {1, 3}:
+                raise ValueError(f"Expected BHWC input with 1 or 3 channels, got shape {im.shape}")
+            if im.shape[-1] == 3:
+                im = im[..., ::-1]  # BGR to RGB; grayscale has no channel-order conversion
+            im = im.transpose((0, 3, 1, 2))  # BHWC to BCHW
             im = np.ascontiguousarray(im)  # contiguous
             im = torch.from_numpy(im)
 
@@ -186,7 +190,14 @@ class BasePredictor:
             auto=same_shapes and (self.model.pt or (getattr(self.model, "dynamic", False) and not self.model.imx)),
             stride=self.model.stride,
         )
-        return [letterbox(image=x) for x in im]
+        transformed = []
+        for image in im:
+            output = letterbox(image=image)
+            # OpenCV squeezes HWC1 to HW during resize/border operations.
+            if image.ndim == 3 and image.shape[-1] == 1 and output.ndim == 2:
+                output = output[..., None]
+            transformed.append(output)
+        return transformed
 
     def postprocess(self, preds, img, orig_imgs):
         """Post-process predictions for an image and return them."""
@@ -300,7 +311,12 @@ class BasePredictor:
 
             # Warmup model
             if not self.done_warmup:
-                self.model.warmup(imgsz=(1 if self.model.pt or self.model.triton else self.dataset.bs, 3, *self.imgsz))
+                metadata = getattr(self.model, "metadata", {}) or {}
+                model_yaml = getattr(getattr(self.model, "model", None), "yaml", {}) or {}
+                channels = int(metadata.get("channels", model_yaml.get("ch", 3)))
+                self.model.warmup(
+                    imgsz=(1 if self.model.pt or self.model.triton else self.dataset.bs, channels, *self.imgsz)
+                )
                 self.done_warmup = True
 
             self.seen, self.windows, self.batch = 0, [], None
