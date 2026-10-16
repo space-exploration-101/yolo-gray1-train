@@ -1,135 +1,61 @@
 # 环境恢复
 
-本文是端到端复现的第 4 步，也是新主机或环境丢失时的独立恢复手册。GitHub 保存源码和小文件；NAS 保存 Docker 镜像归档、离线运行时及未进入 Git 的大权重。恢复过程不需要 GPU，但会写入本地目录并可能导入 Docker 镜像。
+GitHub 保存代码和小型配置；NAS 保存完整镜像与离线运行时。当前训练和推理共用 `yolo-gray1:1280-train-predict-20261016`，完整 ID 为 `sha256:79b0086e39b83c8a3bbb76bfe2df1d8683bd443a6bef19ee7d2e69f096033635`。
 
-## 1. 备份位置
+## 1. 检查备份
 
-GitHub：
-
-```text
-https://github.com/space-exploration-101/yolo-gray1-train
-```
-
-NAS：
+Windows NAS：
 
 ```text
-Windows:
-\\10.2.26.26\902_data\0-项目\13-专项\4-代码\训练平台\yolo-gray1-train
-
-H200：NAS 的实际挂载点由管理员或当前用户决定，挂载后将其赋给 `NAS_MOUNT`。
+\\10.2.26.26\902_data\0-项目\13-专项\4-代码\20261016_H200_docker_images\yolo_gray1_1280_train_predict
 ```
 
-NAS 备份包含：
-
-- `docker/yolo-gray1-train-ultralytics-8.3.98-v1.tar.zst`：正式训练镜像。
-- `docker/yolo-runtime.tar.gz`：Dockerfile 重建所需的离线运行时。
-- `src/Yolo_fine/ultralytics/yolov8x-pose-p6.pt`：未进入 Git 的大权重。
-- `SHA256SUMS`、`VERIFIED`：备份校验和与完成标记。
-
-## 2. 恢复前门禁
-
-确认 NAS 确实挂载、可读且目标备份完成：
+在 Linux 上使用已授权挂载，先检查真实 CIFS 来源：
 
 ```bash
-ssh '<h200-host>'
-
-WORK_ROOT='<absolute-writable-workspace>'
-NAS_MOUNT='<absolute-mounted-902_data-path>'
-NAS_ROOT="$NAS_MOUNT/0-项目/13-专项/4-代码/训练平台/yolo-gray1-train"
-findmnt -T "$NAS_MOUNT"
+set -euo pipefail
+NAS_ROOT='/mnt/ywang-nas/0-项目/13-专项/4-代码/20261016_H200_docker_images/yolo_gray1_1280_train_predict'
+findmnt -t cifs -T "$NAS_ROOT" -o TARGET,SOURCE,FSTYPE
 test -r "$NAS_ROOT/VERIFIED"
-test -r "$NAS_ROOT/SHA256SUMS"
-df -h "$WORK_ROOT" "$NAS_MOUNT"
+(cd "$NAS_ROOT" && sha256sum -c SHA256SUMS)
+test -z "$(find "$NAS_ROOT" -name '*.partial' -print)"
 ```
 
-如果 `findmnt` 没有显示预期 SMB 文件系统，应先按主机运维流程挂载 NAS；不要把空的本地挂载点误当成 NAS。恢复到新目录，目标已存在时停止，不覆盖旧内容。
+来源必须是 `//10.2.26.26/902_data`，校验必须全部通过。
 
-## 3. 校验 NAS 备份
+## 2. 导入完整镜像
 
-```bash
-cd "$NAS_ROOT"
-sha256sum -c SHA256SUMS
-zstd -q -t docker/yolo-gray1-train-ultralytics-8.3.98-v1.tar.zst
-gzip -t docker/yolo-runtime.tar.gz
-find . -name '*.partial' -print
-```
-
-所有校验必须通过，最后一条命令必须没有输出。
-
-## 4. 恢复源码
-
-选择一个不存在的新目录：
+先核对同名标签，只有标签不存在或指向以下已知 ID 时才继续：
 
 ```bash
-RESTORE_ROOT="$WORK_ROOT/yolo-gray1-train-restored"
-test ! -e "$RESTORE_ROOT"
-git clone https://github.com/space-exploration-101/yolo-gray1-train.git "$RESTORE_ROOT"
-cd "$RESTORE_ROOT"
-```
-
-若使用 deploy key，可将仓库 URL 换成组织批准的 SSH 地址。不要把私钥路径或内容写入仓库。
-
-## 5. 优先恢复正式镜像
-
-先检查同名镜像是否已经存在：
-
-```bash
-TRAIN_IMAGE='ywang/yolo-gray1-train:ultralytics-8.3.98-v1'
-docker image inspect "$TRAIN_IMAGE" >/dev/null 2>&1 \
-  && echo 'image already exists; compare identity before loading' \
-  || echo 'image tag is free'
-```
-
-确认不会覆盖需要保留的同名镜像后再导入：
-
-```bash
-zstd -dc "$NAS_ROOT/docker/yolo-gray1-train-ultralytics-8.3.98-v1.tar.zst" \
-  | docker load
-docker image inspect "$TRAIN_IMAGE"
-```
-
-## 6. 需要重建镜像时
-
-先将 Git 忽略的大文件恢复到源码树；使用临时文件、校验后再原子改名：
-
-```bash
-cp "$NAS_ROOT/docker/yolo-runtime.tar.gz" docker/yolo-runtime.tar.gz.partial
-sha256sum docker/yolo-runtime.tar.gz.partial
-test "$(sha256sum docker/yolo-runtime.tar.gz.partial | awk '{print $1}')" = \
-  "$(cut -d' ' -f1 docker/yolo-runtime.tar.gz.sha256)"
-mv docker/yolo-runtime.tar.gz.partial docker/yolo-runtime.tar.gz
-
-cp "$NAS_ROOT/src/Yolo_fine/ultralytics/yolov8x-pose-p6.pt" \
-  src/Yolo_fine/ultralytics/yolov8x-pose-p6.pt.partial
-test "$(sha256sum src/Yolo_fine/ultralytics/yolov8x-pose-p6.pt.partial | awk '{print $1}')" = \
-  "$(grep 'yolov8x-pose-p6.pt$' "$NAS_ROOT/SHA256SUMS" | awk '{print $1}')"
-mv src/Yolo_fine/ultralytics/yolov8x-pose-p6.pt.partial \
-  src/Yolo_fine/ultralytics/yolov8x-pose-p6.pt
-```
-
-构建时建议先用临时标签，验证后再决定是否赋予正式标签：
-
-```bash
-docker build \
-  -f docker/Dockerfile \
-  -t ywang/yolo-gray1-train:recovery-candidate .
-
-docker run --rm \
-  --network none \
-  --read-only \
-  ywang/yolo-gray1-train:recovery-candidate \
+IMAGE='yolo-gray1:1280-train-predict-20261016'
+EXPECTED='sha256:79b0086e39b83c8a3bbb76bfe2df1d8683bd443a6bef19ee7d2e69f096033635'
+if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  test "$(docker image inspect "$IMAGE" --format '{{.Id}}')" = "$EXPECTED"
+fi
+docker load --input "$NAS_ROOT/yolo-gray1_1280-train-predict-20261016.tar"
+test "$(docker image inspect "$IMAGE" --format '{{.Id}}')" = "$EXPECTED"
+docker run --rm --network none --read-only --tmpfs /tmp:rw,size=1g \
+  -e HOME=/tmp -e NO_ALBUMENTATIONS_UPDATE=1 "$IMAGE" \
   python /workspace/src/Yolo_fine/train_yolov8x_p6_pose_gray1.py --help
 ```
 
-## 7. 发布目录校验与验收
+这是未压缩 Docker TAR，使用 `docker load`，不能使用 `docker import`。镜像内已包含运行时和训练、推理源码；运行时不需要再挂载离线包或宿主源码。数据、模型权重及输出目录需单独提供；GPU 使用仍需宿主驱动、NVIDIA Container Toolkit 和资源门禁。
 
-大文件均已恢复到原相对路径后：
+## 3. 恢复源码与重建
+
+在新的空目录 clone 发布分支：
 
 ```bash
-cd "$RESTORE_ROOT"
-sha256sum -c RELEASE_SHA256SUMS
+git clone --branch publish/h200-gray1-20261015 \
+  https://github.com/space-exploration-101/yolo-gray1-train.git yolo-gray1-train-restored
+cd yolo-gray1-train-restored
 ```
 
-静态校验和镜像检查通过后，再按照[启动并验证训练](02_RUN_TRAINING.md)执行一次单卡 1 epoch 烟测。只有出现 `TRAINING_SMOKE_PASS`，才说明数据、GPU、训练、checkpoint 和 final evaluation 链路均已贯通。
+以 NAS `source-state.json` 中的发布提交为准固定 checkout；离线时可从 `source.bundle` clone 后 checkout 同一提交。恢复运行时包到 `docker/yolo-runtime.tar.gz`，再按照 [完整镜像打包与依赖](05_BUILD_IMAGE.md) 执行。完整构建不需要旧 v1 镜像，也不要求三通道预训练 `.pt`。
+
+## 4. 恢复后验收
+
+数据集和正式权重另行恢复并核对各自 SHA-256，不能用备份中的烟测权重代替正式模型。GPU 使用前持续采样显存、利用率和进程所有者，再按 [训练烟测](02_RUN_TRAINING.md) 执行。2026-10-16 的 8 张 train/4 张 val、1 epoch 烟测及 CPU/GPU 推理已通过，仅验证功能，不代表完整模型精度验收。
 
 返回：[项目首页](../../README.md)
