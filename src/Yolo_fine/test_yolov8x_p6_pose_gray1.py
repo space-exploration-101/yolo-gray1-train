@@ -92,6 +92,11 @@ def parse_args() -> argparse.Namespace:
         default="0.05,0.10,0.20",
         help="Comma-separated thresholds normalized by the ground-truth box diagonal.",
     )
+    parser.add_argument(
+        "--pixel-thresholds",
+        default="1,2,3,5,10,20",
+        help="Comma-separated L1 (|dx|+|dy|) pixel-error thresholds used by the custom statistics.",
+    )
     parser.add_argument("--max-images", type=int, default=0, help="Evaluate only the first N images; 0 means all.")
     parser.add_argument(
         "--samples-per-landmark",
@@ -152,8 +157,6 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-images must be >= 0")
     if args.samples_per_landmark < 0:
         raise ValueError("--samples-per-landmark must be >= 0")
-    if args.imgsz != 1280:
-        raise ValueError("Gray1 FPGA ABI requires --imgsz 1280")
     data_cfg = yaml_load(args.data)
     if data_cfg.get("channels") != 1 or data_cfg.get("input_semantics") != "gray1":
         raise ValueError("Dataset YAML must declare channels: 1 and input_semantics: gray1")
@@ -172,9 +175,10 @@ def predict_gray1_batches(
     model: YOLO,
     image_paths: list[Path],
     batch_size: int,
+    input_size: int,
     predict_kwargs: dict[str, object],
 ):
-    """Yield predictions from explicit HxWx1 grayscale arrays without a color reload."""
+    """Yield predictions from explicit square HxWx1 grayscale arrays."""
     for start in range(0, len(image_paths), batch_size):
         paths = image_paths[start : start + batch_size]
         images: list[np.ndarray] = []
@@ -182,6 +186,8 @@ def predict_gray1_batches(
             gray = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
             if gray is None:
                 raise FileNotFoundError(f"Unable to read grayscale image: {path}")
+            if gray.shape != (input_size, input_size):
+                gray = cv2.resize(gray, (input_size, input_size), interpolation=cv2.INTER_LINEAR)
             images.append(gray[..., None])
         results = model.predict(source=images, stream=False, **predict_kwargs)
         if len(results) != len(paths):
@@ -196,6 +202,16 @@ def parse_pck_thresholds(value: str) -> list[float]:
         raise ValueError(f"Invalid --pck-thresholds value: {value!r}") from exc
     if not thresholds or any(item <= 0.0 for item in thresholds):
         raise ValueError("--pck-thresholds must contain positive numbers")
+    return thresholds
+
+
+def parse_pixel_thresholds(value: str) -> list[float]:
+    try:
+        thresholds = [float(item.strip()) for item in value.split(",") if item.strip()]
+    except ValueError as exc:
+        raise ValueError(f"Invalid --pixel-thresholds value: {value!r}") from exc
+    if not thresholds or any(item <= 0.0 for item in thresholds):
+        raise ValueError("--pixel-thresholds must contain positive numbers")
     return thresholds
 
 
@@ -361,6 +377,35 @@ def mean_or_none(values: list[float]) -> float | None:
     return float(np.mean(values)) if values else None
 
 
+def error_distribution(values: list[float]) -> dict[str, float | int | None]:
+    """Summarize a pixel-error distribution without hiding its long tail."""
+
+    if not values:
+        return {
+            "count": 0,
+            "mean": None,
+            "median": None,
+            "rmse": None,
+            "std": None,
+            "p90": None,
+            "p95": None,
+            "p99": None,
+            "max": None,
+        }
+    array = np.asarray(values, dtype=np.float64)
+    return {
+        "count": int(array.size),
+        "mean": float(np.mean(array)),
+        "median": float(np.median(array)),
+        "rmse": float(np.sqrt(np.mean(np.square(array)))),
+        "std": float(np.std(array)),
+        "p90": float(np.percentile(array, 90)),
+        "p95": float(np.percentile(array, 95)),
+        "p99": float(np.percentile(array, 99)),
+        "max": float(np.max(array)),
+    }
+
+
 def landmark_from_image(path: str | Path) -> str:
     """Use the leading filename token as the landmark name (e.g. agaier_123...)."""
     return Path(path).stem.split("_")[0]
@@ -380,8 +425,8 @@ def aggregate_per_landmark(per_image: list[dict[str, object]], pck_thresholds: l
         gt = total("gt_instances")
         visible = total("visible_keypoints")
         predicted = total("predicted_keypoints")
-        mae_values = [float(row["keypoint_mae_px_on_predicted"]) * int(row["predicted_keypoints"])
-                      for row in rows if row.get("keypoint_mae_px_on_predicted") is not None]
+        l1_values = [float(row["keypoint_l1_mean_px_on_predicted"]) * int(row["predicted_keypoints"])
+                     for row in rows if row.get("keypoint_l1_mean_px_on_predicted") is not None]
         result: dict[str, object] = {
             "landmark": landmark, "images": len(rows), "gt_instances": gt,
             "predicted_instances": total("predictions"), "matched_instances": matched,
@@ -390,7 +435,7 @@ def aggregate_per_landmark(per_image: list[dict[str, object]], pck_thresholds: l
             "detection_recall": safe_ratio(matched, gt),
             "visible_keypoints": visible, "predicted_keypoints": predicted,
             "keypoint_recall": safe_ratio(predicted, visible),
-            "keypoint_mae_px": safe_ratio(sum(mae_values), predicted),
+            "keypoint_l1_mean_px": safe_ratio(sum(l1_values), predicted),
         }
         for threshold in pck_thresholds:
             hits = sum(float(row.get(f"pck@{threshold:g}") or 0) * int(row.get("visible_keypoints") or 0) for row in rows)
@@ -406,6 +451,7 @@ def run_custom_metrics(
     output_dir: Path,
     args: argparse.Namespace,
     pck_thresholds: list[float],
+    pixel_thresholds: list[float],
 ) -> dict[str, object]:
     """Run prediction and calculate detection and normalized keypoint metrics."""
 
@@ -430,10 +476,14 @@ def run_custom_metrics(
 
     per_image: list[dict[str, object]] = []
     error_by_keypoint: list[list[float]] = []
+    dx_by_keypoint: list[list[float]] = []
+    dy_by_keypoint: list[list[float]] = []
     pck_hits_by_keypoint: list[dict[float, int]] = []
     visible_by_keypoint: list[int] = []
     predicted_by_keypoint: list[int] = []
     all_errors: list[float] = []
+    all_dx: list[float] = []
+    all_dy: list[float] = []
     all_pck_hits = {threshold: 0 for threshold in pck_thresholds}
     total_visible = 0
     total_predicted_keypoints = 0
@@ -446,7 +496,9 @@ def run_custom_metrics(
     total_background_images = 0
 
     seen_paths: set[Path] = set()
-    for image_path, result in predict_gray1_batches(model, image_paths, args.batch, predict_kwargs):
+    for image_path, result in predict_gray1_batches(
+        model, image_paths, args.batch, args.imgsz, predict_kwargs
+    ):
         seen_paths.add(image_path)
         label_file = labels_dir / f"{image_path.stem}.txt"
         gt = read_label_file(label_file)
@@ -486,6 +538,8 @@ def run_custom_metrics(
                     continue
                 while len(error_by_keypoint) <= keypoint_index:
                     error_by_keypoint.append([])
+                    dx_by_keypoint.append([])
+                    dy_by_keypoint.append([])
                     pck_hits_by_keypoint.append({threshold: 0 for threshold in pck_thresholds})
                     visible_by_keypoint.append(0)
                     predicted_by_keypoint.append(0)
@@ -504,10 +558,18 @@ def run_custom_metrics(
                 total_predicted_keypoints += 1
                 image_predicted += 1
                 pred_xy_px = pred_keypoints[keypoint_index, :2]
-                error_px = float(np.linalg.norm(pred_xy_px - target_xy_px))
-                normalized_error = error_px / target_diagonal
+                offset_xy_px = pred_xy_px - target_xy_px
+                dx_px, dy_px = (float(value) for value in offset_xy_px)
+                error_px = float(np.abs(offset_xy_px).sum())
+                # PCK convention remains Euclidean and is reported separately;
+                # every absolute pixel-error statistic uses pure L1.
+                normalized_error = float(np.linalg.norm(offset_xy_px)) / target_diagonal
                 error_by_keypoint[keypoint_index].append(error_px)
+                dx_by_keypoint[keypoint_index].append(dx_px)
+                dy_by_keypoint[keypoint_index].append(dy_px)
                 all_errors.append(error_px)
+                all_dx.append(dx_px)
+                all_dy.append(dy_px)
                 image_errors.append(error_px)
                 for threshold in pck_thresholds:
                     if normalized_error <= threshold:
@@ -525,7 +587,7 @@ def run_custom_metrics(
             "best_match_iou": max((item[2] for item in matched), default=None),
             "visible_keypoints": image_visible,
             "predicted_keypoints": image_predicted,
-            "keypoint_mae_px_on_predicted": mean_or_none(image_errors),
+            "keypoint_l1_mean_px_on_predicted": mean_or_none(image_errors),
         }
         for threshold in pck_thresholds:
             image_row[f"pck@{threshold:g}"] = safe_ratio(image_pck_hits[threshold], image_visible)
@@ -545,8 +607,13 @@ def run_custom_metrics(
             "visible_gt": visible_by_keypoint[keypoint_index],
             "predicted": predicted_by_keypoint[keypoint_index],
             "prediction_recall": safe_ratio(predicted_by_keypoint[keypoint_index], visible_by_keypoint[keypoint_index]),
-            "mae_px": mean_or_none(errors),
+            "l1_mean_px": mean_or_none(errors),
+            "l1_px": error_distribution(errors),
+            "dx_px": error_distribution(dx_by_keypoint[keypoint_index]),
+            "dy_px": error_distribution(dy_by_keypoint[keypoint_index]),
         }
+        for threshold in pixel_thresholds:
+            row[f"within_{threshold:g}px"] = safe_ratio(sum(error <= threshold for error in errors), len(errors))
         for threshold in pck_thresholds:
             row[f"pck@{threshold:g}"] = safe_ratio(
                 pck_hits_by_keypoint[keypoint_index][threshold], visible_by_keypoint[keypoint_index]
@@ -574,7 +641,12 @@ def run_custom_metrics(
         "visible_keypoints": total_visible,
         "predicted_keypoints": total_predicted_keypoints,
         "keypoint_prediction_recall": safe_ratio(total_predicted_keypoints, total_visible),
-        "keypoint_mae_px_on_predicted": mean_or_none(all_errors),
+        "keypoint_l1_mean_px_on_predicted": mean_or_none(all_errors),
+        "pixel_offset_convention": "prediction minus ground-truth label in resized model-input pixels",
+        "pixel_error_definition": "L1 |dx|+|dy| per keypoint",
+        "keypoint_l1_px": error_distribution(all_errors),
+        "keypoint_dx_px": error_distribution(all_dx),
+        "keypoint_dy_px": error_distribution(all_dy),
         "pck_normalization": "ground_truth_box_diagonal",
         "keypoint_conf_threshold": args.keypoint_conf,
         "match_iou_threshold": args.match_iou,
@@ -583,6 +655,10 @@ def run_custom_metrics(
     }
     for threshold in pck_thresholds:
         summary[f"pck@{threshold:g}"] = safe_ratio(all_pck_hits[threshold], total_visible)
+    for threshold in pixel_thresholds:
+        summary[f"within_{threshold:g}px_on_predicted"] = safe_ratio(
+            sum(error <= threshold for error in all_errors), len(all_errors)
+        )
     return summary
 
 
@@ -630,6 +706,7 @@ def main() -> None:
     args = parse_args()
     validate_args(args)
     pck_thresholds = parse_pck_thresholds(args.pck_thresholds)
+    pixel_thresholds = parse_pixel_thresholds(args.pixel_thresholds)
     image_paths = image_files(args.images, args.max_images)
     image_paths, sampled_counts = sample_per_landmark(
         image_paths, args.labels, args.samples_per_landmark, args.sample_seed
@@ -656,6 +733,7 @@ def main() -> None:
         "images": str(args.images.resolve()),
         "labels": str(args.labels.resolve()),
         "imgsz": args.imgsz,
+        "pixel_coordinate_space": f"{args.imgsz}x{args.imgsz} resized model input",
         "batch": args.batch,
         "device": args.device,
         "input_channels": 1,
@@ -693,18 +771,25 @@ def main() -> None:
 
     if not args.skip_custom:
         print("\nRunning detailed prediction pass and keypoint statistics ...")
-        custom = run_custom_metrics(model, image_paths, args.labels, args.output, args, pck_thresholds)
+        custom = run_custom_metrics(
+            model, image_paths, args.labels, args.output, args, pck_thresholds, pixel_thresholds
+        )
         report["custom_metrics"] = custom
         print("\nCustom detection/keypoint metrics")
         for key in (
             "detection_precision_at_match_iou",
             "detection_recall_at_match_iou",
             "keypoint_prediction_recall",
-            "keypoint_mae_px_on_predicted",
+            "keypoint_l1_mean_px_on_predicted",
         ):
             print(f"  {key}: {custom[key]}")
         for threshold in pck_thresholds:
             print(f"  pck@{threshold:g}: {custom[f'pck@{threshold:g}']}")
+        print(f"  keypoint_l1_px: {custom['keypoint_l1_px']}")
+        print(f"  keypoint_dx_px: {custom['keypoint_dx_px']}")
+        print(f"  keypoint_dy_px: {custom['keypoint_dy_px']}")
+        for threshold in pixel_thresholds:
+            print(f"  within_{threshold:g}px_on_predicted: {custom[f'within_{threshold:g}px_on_predicted']}")
         print(f"  Per-image CSV: {args.output / 'per_image.csv'}")
         print(f"  Per-keypoint CSV: {args.output / 'per_keypoint.csv'}")
 

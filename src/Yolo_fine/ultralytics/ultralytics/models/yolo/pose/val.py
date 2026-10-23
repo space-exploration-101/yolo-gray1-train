@@ -89,6 +89,80 @@ class PoseValidator(DetectionValidator):
         nkpt = self.kpt_shape[0]
         self.sigma = OKS_SIGMA if is_pose else np.ones(nkpt) / nkpt
         self.stats = dict(tp_p=[], tp=[], conf=[], pred_cls=[], target_cls=[], target_img=[])
+        self.pixel_errors = []
+        self.pixel_l2_errors = []
+        self.pixel_errors_by_keypoint = [[] for _ in range(nkpt)]
+        self.pixel_visible_keypoints = 0
+        self.pixel_predicted_keypoints = 0
+
+    def _update_pixel_metrics(self, si, pred, batch):
+        """Accumulate same-class matched keypoint L1 errors in model-input pixels."""
+        idx = batch["batch_idx"] == si
+        gt_cls = batch["cls"][idx].squeeze(-1)
+        gt_boxes = batch["bboxes"][idx]
+        gt_kpts = batch["keypoints"][idx].clone()
+        input_height, input_width = batch["img"].shape[2:]
+        gt_kpts[..., 0] *= input_width
+        gt_kpts[..., 1] *= input_height
+        visible = gt_kpts[..., 2] > 0 if gt_kpts.shape[-1] == 3 else torch.ones_like(
+            gt_kpts[..., 0], dtype=torch.bool
+        )
+        self.pixel_visible_keypoints += int(visible.sum().item())
+        if not len(gt_cls) or not len(pred):
+            return
+
+        scale = torch.tensor(
+            [input_width, input_height, input_width, input_height], device=gt_boxes.device, dtype=gt_boxes.dtype
+        )
+        gt_boxes = ops.xywh2xyxy(gt_boxes) * scale
+        pred = pred[pred[:, 4] >= float(self.args.pixel_metric_conf)]
+        if not len(pred):
+            return
+        pred_boxes = pred[:, :4]
+        pred_cls = pred[:, 5]
+        pred_kpts = pred[:, 6:].view(len(pred), *self.kpt_shape)
+        ious = box_iou(pred_boxes, gt_boxes)
+
+        used_gt = set()
+        matches = []
+        for pred_index in torch.argsort(pred[:, 4], descending=True).tolist():
+            candidates = [
+                gt_index
+                for gt_index in range(len(gt_cls))
+                if gt_index not in used_gt and int(pred_cls[pred_index]) == int(gt_cls[gt_index])
+            ]
+            if not candidates:
+                continue
+            best_gt = max(candidates, key=lambda gt_index: float(ious[pred_index, gt_index]))
+            if float(ious[pred_index, best_gt]) < float(self.args.pixel_metric_match_iou):
+                continue
+            used_gt.add(best_gt)
+            matches.append((pred_index, best_gt))
+
+        for pred_index, gt_index in matches:
+            for keypoint_index in range(self.kpt_shape[0]):
+                if not bool(visible[gt_index, keypoint_index]):
+                    continue
+                prediction = pred_kpts[pred_index, keypoint_index]
+                if prediction.shape[0] >= 3 and float(prediction[2]) < float(self.args.pixel_metric_kpt_conf):
+                    continue
+                delta = prediction[:2] - gt_kpts[gt_index, keypoint_index, :2]
+                # Primary error: requested pure L1 displacement |dx| + |dy|.
+                l1_error = float(torch.abs(delta).sum())
+                # Secondary reference: Euclidean displacement sqrt(dx^2 + dy^2).
+                l2_error = float(torch.linalg.vector_norm(delta))
+                self.pixel_errors.append(l1_error)
+                self.pixel_l2_errors.append(l2_error)
+                self.pixel_errors_by_keypoint[keypoint_index].append(l1_error)
+                self.pixel_predicted_keypoints += 1
+
+    @staticmethod
+    def _pixel_summary(values):
+        """Return stable scalar summaries for CSV/TensorBoard logging."""
+        if not values:
+            return float("nan"), float("nan"), float("nan")
+        array = np.asarray(values, dtype=np.float64)
+        return float(array.mean()), float(np.median(array)), float(np.percentile(array, 95))
 
     def _prepare_batch(self, si, batch):
         """Prepare a batch for processing by converting keypoints to float and scaling to original dimensions."""
@@ -133,6 +207,7 @@ class PoseValidator(DetectionValidator):
             pbatch = self._prepare_batch(si, batch)
             cls, bbox = pbatch.pop("cls"), pbatch.pop("bbox")
             nl = len(cls)
+            self._update_pixel_metrics(si, pred, batch)
             stat["target_cls"] = cls
             stat["target_img"] = cls.unique()
             if npr == 0:
@@ -171,6 +246,59 @@ class PoseValidator(DetectionValidator):
                     pbatch["ori_shape"],
                     self.save_dir / "labels" / f"{Path(batch['im_file'][si]).stem}.txt",
                 )
+
+    def get_stats(self):
+        """Return standard pose metrics plus absolute-pixel keypoint errors."""
+        stats = super().get_stats()
+        mean_px, median_px, p95_px = self._pixel_summary(self.pixel_errors)
+        l2_mean_px, l2_median_px, l2_p95_px = self._pixel_summary(self.pixel_l2_errors)
+        stats.update(
+            {
+                # Retain legacy keys, whose values are L1, for existing CSV/plot consumers.
+                "metrics/kpt_mean_px": mean_px,
+                "metrics/kpt_median_px": median_px,
+                "metrics/kpt_p95_px": p95_px,
+                "metrics/kpt_l1_mean_px": mean_px,
+                "metrics/kpt_l1_median_px": median_px,
+                "metrics/kpt_l1_p95_px": p95_px,
+                "metrics/kpt_l2_mean_px": l2_mean_px,
+                "metrics/kpt_l2_median_px": l2_median_px,
+                "metrics/kpt_l2_p95_px": l2_p95_px,
+                "metrics/kpt_pixel_coverage": (
+                    self.pixel_predicted_keypoints / self.pixel_visible_keypoints
+                    if self.pixel_visible_keypoints
+                    else float("nan")
+                ),
+            }
+        )
+        for keypoint_index, errors in enumerate(self.pixel_errors_by_keypoint):
+            point_mean, point_median, _ = self._pixel_summary(errors)
+            stats[f"metrics/kpt{keypoint_index}_mean_px"] = point_mean
+            stats[f"metrics/kpt{keypoint_index}_median_px"] = point_median
+        self.metrics.pixel_results = {
+            key: value for key, value in stats.items() if key.startswith("metrics/kpt")
+        }
+        return stats
+
+    def print_results(self):
+        """Print standard pose metrics followed by pixel-error statistics."""
+        super().print_results()
+        mean_px, median_px, p95_px = self._pixel_summary(self.pixel_errors)
+        l2_mean_px, l2_median_px, l2_p95_px = self._pixel_summary(self.pixel_l2_errors)
+        coverage = (
+            self.pixel_predicted_keypoints / self.pixel_visible_keypoints
+            if self.pixel_visible_keypoints
+            else float("nan")
+        )
+        LOGGER.info(
+            "Keypoint L1 pixel error |dx|+|dy| (model-input coordinates): "
+            f"mean={mean_px:.3f}px median={median_px:.3f}px p95={p95_px:.3f}px "
+            f"coverage={coverage:.4f} ({self.pixel_predicted_keypoints}/{self.pixel_visible_keypoints})"
+        )
+        LOGGER.info(
+            "Keypoint Euclidean pixel error sqrt(dx^2+dy^2) (model-input coordinates): "
+            f"mean={l2_mean_px:.3f}px median={l2_median_px:.3f}px p95={l2_p95_px:.3f}px"
+        )
 
     def _process_batch(self, detections, gt_bboxes, gt_cls, pred_kpts=None, gt_kpts=None):
         """

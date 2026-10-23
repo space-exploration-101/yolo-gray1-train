@@ -51,9 +51,12 @@ docker run --rm \
 - `amp=True`：自动混合精度。
 - `patience=100`：早停等待周期。
 - `save=True`、`plots=True`：保存权重和图表。
-- `cache=False`、`multi_scale=False`：关闭缓存和多尺度训练。
+- `cache=False`：关闭缓存。
+- `multi_scale=True`：默认在 `0.5x` 到 `1.5x` 基准 `imgsz` 之间进行动态多尺度训练；可用 `--no-multi-scale` 关闭。
 
-HSV、旋转、平移、缩放、剪切、透视、翻转、mosaic、mixup、copy-paste、BGR 交换和 erasing 均设为 0。原因是数据增强应在离线预处理阶段完成，训练阶段不再叠加几何或颜色增强。
+默认开启在线空间增强：`mosaic=1.0`、`mixup=0.1`、`flipud=0.5`、`fliplr=0.5`、旋转 `10°`、平移 `0.1`、缩放 `0.5`、错切 `2°`、透视 `0.0005`，以及 Pose 数据管线中的随机擦除 `0.2`。灰度输入的 HSV 与 BGR 交换保持关闭。`copy_paste=0.1` 会被记录，但原生 Ultralytics Copy-Paste 需要实例分割轮廓，当前 Pose 标签没有轮廓，因此不会修改图像。
+
+验证像素误差统一为每个关键点的纯 L1：`|x_pred-x_gt| + |y_pred-y_gt|`。训练中的坐标辅助损失仍为 Smooth L1，两者不要求数值相等。
 
 当前使用 `optimizer=auto`，因此 Ultralytics 可能自动选择优化器、学习率和 momentum，并忽略默认 `lr0`/`momentum`。最终实际值以日志和 `args.yaml` 为准。
 

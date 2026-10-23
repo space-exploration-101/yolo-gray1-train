@@ -633,7 +633,10 @@ class Mosaic(BaseMixTransform):
 
             # Place img in img3
             if i == 0:  # center
-                img3 = np.full((s * 3, s * 3, img.shape[2]), 114, dtype=np.uint8)  # base image with 3 tiles
+                # OpenCV returns native Gray1 inputs as HxW rather than HxWx1.
+                # Preserve that dimensionality instead of assuming a channel axis.
+                canvas_shape = (s * 3, s * 3) if img.ndim == 2 else (s * 3, s * 3, img.shape[2])
+                img3 = np.full(canvas_shape, 114, dtype=np.uint8)  # base image with 3 tiles
                 h0, w0 = h, w
                 c = s, s, s + w, s + h  # xmin, ymin, xmax, ymax (base) coordinates
             elif i == 1:  # right
@@ -690,7 +693,8 @@ class Mosaic(BaseMixTransform):
 
             # Place img in img4
             if i == 0:  # top left
-                img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
+                canvas_shape = (s * 2, s * 2) if img.ndim == 2 else (s * 2, s * 2, img.shape[2])
+                img4 = np.full(canvas_shape, 114, dtype=np.uint8)  # base image with 4 tiles
                 x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
                 x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
             elif i == 1:  # top right
@@ -750,7 +754,8 @@ class Mosaic(BaseMixTransform):
 
             # Place img in img9
             if i == 0:  # center
-                img9 = np.full((s * 3, s * 3, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
+                canvas_shape = (s * 3, s * 3) if img.ndim == 2 else (s * 3, s * 3, img.shape[2])
+                img9 = np.full(canvas_shape, 114, dtype=np.uint8)  # base image with 9 tiles
                 h0, w0 = h, w
                 c = s, s, s + w, s + h  # xmin, ymin, xmax, ymax (base) coordinates
             elif i == 1:  # top
@@ -1366,6 +1371,10 @@ class RandomHSV:
         """
         if self.hgain or self.sgain or self.vgain:
             img = labels["img"]
+            # HSV is defined for BGR inputs only. Native Gray1 datasets may be
+            # HxW or HxWx1 after OpenCV/Albumentations, so leave them unchanged.
+            if img.ndim != 3 or img.shape[2] != 3:
+                return labels
             dtype = img.dtype  # uint8
 
             r = np.random.uniform(-1, 1, 3) * [self.hgain, self.sgain, self.vgain]  # random gains
@@ -1473,6 +1482,37 @@ class RandomFlip:
                 instances.keypoints = np.ascontiguousarray(instances.keypoints[:, self.flip_idx, :])
         labels["img"] = np.ascontiguousarray(img)
         labels["instances"] = instances
+        return labels
+
+
+class PoseRandomErasing:
+    """Apply label-preserving random erasing to detection/pose images."""
+
+    def __init__(self, p=0.0, scale=(0.02, 0.2), ratio=(0.3, 3.3), value=0, attempts=10):
+        self.p = p
+        self.scale = scale
+        self.ratio = ratio
+        self.value = value
+        self.attempts = attempts
+
+    def __call__(self, labels):
+        if self.p <= 0.0 or random.random() >= self.p:
+            return labels
+
+        image = labels["img"]
+        height, width = image.shape[:2]
+        area = height * width
+        for _ in range(self.attempts):
+            erase_area = random.uniform(*self.scale) * area
+            aspect = math.exp(random.uniform(math.log(self.ratio[0]), math.log(self.ratio[1])))
+            erase_height = int(round(math.sqrt(erase_area * aspect)))
+            erase_width = int(round(math.sqrt(erase_area / aspect)))
+            if 0 < erase_height < height and 0 < erase_width < width:
+                top = random.randint(0, height - erase_height)
+                left = random.randint(0, width - erase_width)
+                image[top : top + erase_height, left : left + erase_width] = self.value
+                labels["img"] = image
+                break
         return labels
 
 
@@ -2355,6 +2395,7 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
             RandomHSV(hgain=hyp.hsv_h, sgain=hyp.hsv_s, vgain=hyp.hsv_v),
             RandomFlip(direction="vertical", p=hyp.flipud),
             RandomFlip(direction="horizontal", p=hyp.fliplr, flip_idx=flip_idx),
+            PoseRandomErasing(p=hyp.erasing),
         ]
     )  # transforms
 

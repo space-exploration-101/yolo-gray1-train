@@ -140,13 +140,27 @@ class KeypointLoss(nn.Module):
         super().__init__()
         self.sigmas = sigmas
 
-    def forward(self, pred_kpts, gt_kpts, kpt_mask, area):
-        """Calculate keypoint loss factor and Euclidean distance loss for keypoints."""
+    def forward(self, pred_kpts, gt_kpts, kpt_mask, area, pixel_stride, smooth_l1_beta_px):
+        """Calculate OKS loss and an absolute-pixel Smooth L1 coordinate loss."""
         d = (pred_kpts[..., 0] - gt_kpts[..., 0]).pow(2) + (pred_kpts[..., 1] - gt_kpts[..., 1]).pow(2)
         kpt_loss_factor = kpt_mask.shape[1] / (torch.sum(kpt_mask != 0, dim=1) + 1e-9)
         # e = d / (2 * (area * self.sigmas) ** 2 + 1e-9)  # from formula
         e = d / ((2 * self.sigmas).pow(2) * (area + 1e-9) * 2)  # from cocoeval
-        return (kpt_loss_factor.view(-1, 1) * ((1 - torch.exp(-e)) * kpt_mask)).mean()
+        oks_loss = (kpt_loss_factor.view(-1, 1) * ((1 - torch.exp(-e)) * kpt_mask)).mean()
+
+        # pred_kpts and gt_kpts are expressed in feature-grid units. Multiplying
+        # each foreground assignment by its pyramid stride converts the residual
+        # to model-input pixels, which is the control quantity used at evaluation.
+        pixel_residual = (pred_kpts[..., :2] - gt_kpts[..., :2]) * pixel_stride.view(-1, 1, 1)
+        coordinate_terms = F.smooth_l1_loss(
+            pixel_residual,
+            torch.zeros_like(pixel_residual),
+            reduction="none",
+            beta=smooth_l1_beta_px,
+        )
+        visible_coordinates = kpt_mask.unsqueeze(-1).expand_as(coordinate_terms)
+        coordinate_loss = (coordinate_terms * visible_coordinates).sum() / visible_coordinates.sum().clamp_min(1)
+        return oks_loss, coordinate_loss
 
 
 class v8DetectionLoss:
@@ -450,10 +464,12 @@ class v8PoseLoss(v8DetectionLoss):
         nkpt = self.kpt_shape[0]  # number of keypoints
         sigmas = torch.from_numpy(OKS_SIGMA).to(self.device) if is_pose else torch.ones(nkpt, device=self.device) / nkpt
         self.keypoint_loss = KeypointLoss(sigmas=sigmas)
+        self.coord_beta_px = float(getattr(self.hyp, "coord_beta_px", 2.0))
+        self.coord_gain = 0.0
 
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it for pose estimation."""
-        loss = torch.zeros(5, device=self.device)  # box, cls, dfl, kpt_location, kpt_visibility
+        loss = torch.zeros(6, device=self.device)  # box, pose, kobj, cls, dfl, raw pixel-coordinate loss
         feats, pred_kpts = preds if isinstance(preds[0], list) else preds[1]
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
             (self.reg_max * 4, self.nc), 1
@@ -505,7 +521,7 @@ class v8PoseLoss(v8DetectionLoss):
             keypoints[..., 0] *= imgsz[1]
             keypoints[..., 1] *= imgsz[0]
 
-            loss[1], loss[2] = self.calculate_keypoints_loss(
+            loss[1], loss[2], loss[5] = self.calculate_keypoints_loss(
                 fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
             )
 
@@ -515,7 +531,13 @@ class v8PoseLoss(v8DetectionLoss):
         loss[3] *= self.hyp.cls  # cls gain
         loss[4] *= self.hyp.dfl  # dfl gain
 
-        return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
+        # Report every displayed loss in its actual weighted form. In particular,
+        # coord_loss in the progress bar/results.csv is the contribution to the
+        # optimized objective, not the unweighted Smooth L1 measurement.
+        total_loss = loss[:5].sum() + self.coord_gain * loss[5]
+        loss_items = loss.detach().clone()
+        loss_items[5] *= self.coord_gain
+        return total_loss * batch_size, loss_items
 
     @staticmethod
     def kpts_decode(anchor_points, pred_kpts):
@@ -579,18 +601,27 @@ class v8PoseLoss(v8DetectionLoss):
 
         kpts_loss = 0
         kpts_obj_loss = 0
+        coord_loss = 0
 
         if masks.any():
             gt_kpt = selected_keypoints[masks]
             area = xyxy2xywh(target_bboxes[masks])[:, 2:].prod(1, keepdim=True)
             pred_kpt = pred_kpts[masks]
             kpt_mask = gt_kpt[..., 2] != 0 if gt_kpt.shape[-1] == 3 else torch.full_like(gt_kpt[..., 0], True)
-            kpts_loss = self.keypoint_loss(pred_kpt, gt_kpt, kpt_mask, area)  # pose loss
+            foreground_strides = stride_tensor.squeeze(-1).unsqueeze(0).expand(batch_size, -1)[masks]
+            kpts_loss, coord_loss = self.keypoint_loss(
+                pred_kpt,
+                gt_kpt,
+                kpt_mask,
+                area,
+                foreground_strides,
+                self.coord_beta_px,
+            )
 
             if pred_kpt.shape[-1] == 3:
                 kpts_obj_loss = self.bce_pose(pred_kpt[..., 2], kpt_mask.float())  # keypoint obj loss
 
-        return kpts_loss, kpts_obj_loss
+        return kpts_loss, kpts_obj_loss, coord_loss
 
 
 class v8ClassificationLoss:

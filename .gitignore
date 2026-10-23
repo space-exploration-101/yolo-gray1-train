@@ -15,6 +15,7 @@ venv/
 runs/
 logs/
 *.log
+data/
 
 # Editor and operating-system files.
 .idea/

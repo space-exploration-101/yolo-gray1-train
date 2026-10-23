@@ -101,6 +101,10 @@ cls: 0.5 # (float) cls loss gain (scale with pixels)
 dfl: 1.5 # (float) dfl loss gain
 pose: 12.0 # (float) pose loss gain
 kobj: 1.0 # (float) keypoint obj loss gain
+coord_beta_px: 2.0 # (float) Smooth L1 transition point for pose coordinate error in input pixels
+pixel_metric_conf: 0.25 # (float) detection confidence threshold for validation pixel-error statistics
+pixel_metric_match_iou: 0.5 # (float) same-class box IoU threshold for validation pixel-error matching
+pixel_metric_kpt_conf: 0.5 # (float) keypoint confidence threshold for validation pixel-error statistics
 nbs: 64 # (int) nominal batch size
 hsv_h: 0.015 # (float) image HSV-Hue augmentation (fraction)
 hsv_s: 0.7 # (float) image HSV-Saturation augmentation (fraction)

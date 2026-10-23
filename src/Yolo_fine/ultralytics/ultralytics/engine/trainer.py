@@ -346,6 +346,10 @@ class BaseTrainer:
         while True:
             self.epoch = epoch
             self.run_callbacks("on_train_epoch_start")
+            # Callbacks may intentionally replace the train loader at an epoch
+            # boundary (for example a curriculum schedule).  Recompute the
+            # batch count before this epoch's progress and warmup bookkeeping.
+            nb = len(self.train_loader)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")  # suppress 'Detected lr_scheduler.step() before optimizer.step()'
                 self.scheduler.step()

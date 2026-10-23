@@ -1104,6 +1104,7 @@ class PoseMetrics(SegmentMetrics):
         self.names = names
         self.box = Metric()
         self.pose = Metric()
+        self.pixel_results = {}
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
         self.task = "pose"
 
@@ -1177,6 +1178,13 @@ class PoseMetrics(SegmentMetrics):
     def fitness(self):
         """Return combined fitness score for pose and box detection."""
         return self.pose.fitness() + self.box.fitness()
+
+    @property
+    def results_dict(self):
+        """Return standard pose metrics together with optional pixel-error metrics."""
+        results = dict(zip(self.keys + ["fitness"], self.mean_results() + [self.fitness]))
+        results.update(self.pixel_results)
+        return results
 
     @property
     def curves(self):

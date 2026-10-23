@@ -825,6 +825,7 @@ def plot_results(file="path/to/results.csv", dir="", segment=False, pose=False, 
     from scipy.ndimage import gaussian_filter1d
 
     save_dir = Path(file).parent if file else Path(dir)
+    pose_columns = None
     if classify:
         fig, ax = plt.subplots(2, 2, figsize=(6, 6), tight_layout=True)
         index = [2, 5, 3, 4]
@@ -832,8 +833,17 @@ def plot_results(file="path/to/results.csv", dir="", segment=False, pose=False, 
         fig, ax = plt.subplots(2, 8, figsize=(18, 6), tight_layout=True)
         index = [2, 3, 4, 5, 6, 7, 10, 11, 14, 15, 16, 17, 8, 9, 12, 13]
     elif pose:
-        fig, ax = plt.subplots(2, 9, figsize=(21, 6), tight_layout=True)
-        index = [2, 3, 4, 5, 6, 7, 8, 11, 12, 15, 16, 17, 18, 19, 9, 10, 13, 14]
+        pose_columns = [
+            "train/box_loss", "train/pose_loss", "train/kobj_loss", "train/cls_loss", "train/dfl_loss",
+            "train/coord_loss", "metrics/precision(B)", "metrics/recall(B)", "metrics/mAP50(B)",
+            "metrics/mAP50-95(B)", "metrics/precision(P)", "metrics/recall(P)", "metrics/mAP50(P)",
+            "metrics/mAP50-95(P)", "metrics/kpt_mean_px", "metrics/kpt_median_px", "metrics/kpt_p95_px",
+            "metrics/kpt_l2_mean_px", "metrics/kpt_l2_median_px", "metrics/kpt_l2_p95_px",
+            "metrics/kpt_pixel_coverage", "val/box_loss", "val/pose_loss", "val/kobj_loss", "val/cls_loss",
+            "val/dfl_loss", "val/coord_loss", "coord/gain",
+        ]
+        fig, ax = plt.subplots(6, 5, figsize=(16, 18), tight_layout=True)
+        index = []
     else:
         fig, ax = plt.subplots(2, 5, figsize=(12, 6), tight_layout=True)
         index = [2, 3, 4, 5, 6, 9, 10, 11, 7, 8]
@@ -845,7 +855,8 @@ def plot_results(file="path/to/results.csv", dir="", segment=False, pose=False, 
             data = pd.read_csv(f)
             s = [x.strip() for x in data.columns]
             x = data.values[:, 0]
-            for i, j in enumerate(index):
+            plot_indices = [s.index(name) for name in pose_columns if name in s] if pose_columns else index
+            for i, j in enumerate(plot_indices):
                 y = data.values[:, j].astype("float")
                 # y[y == 0] = np.nan  # don't show zero values
                 ax[i].plot(x, y, marker=".", label=f.stem, linewidth=2, markersize=8)  # actual results
@@ -853,6 +864,8 @@ def plot_results(file="path/to/results.csv", dir="", segment=False, pose=False, 
                 ax[i].set_title(s[j], fontsize=12)
                 # if j in {8, 9, 10}:  # share train and val loss y axes
                 #     ax[i].get_shared_y_axes().join(ax[i], ax[i - 5])
+            for unused_axis in ax[len(plot_indices) :]:
+                unused_axis.axis("off")
         except Exception as e:
             LOGGER.warning(f"WARNING: Plotting error for {f}: {e}")
     ax[1].legend()
