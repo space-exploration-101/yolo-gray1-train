@@ -31,6 +31,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 LOCAL_ULTRALYTICS_ROOT = PROJECT_ROOT / "ultralytics"
 DEFAULT_OUTPUT = Path("/experiments/eval-gray1")
 IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
+BRIGHT_BLUE_BGR = (255, 191, 0)  # RGB #00BFFF (DeepSkyBlue)
 
 if str(LOCAL_ULTRALYTICS_ROOT) not in sys.path:
     sys.path.insert(0, str(LOCAL_ULTRALYTICS_ROOT))
@@ -122,6 +123,12 @@ def parse_args() -> argparse.Namespace:
         help="Save annotated prediction images during the detailed prediction pass.",
     )
     parser.add_argument(
+        "--visualization-stride",
+        type=int,
+        default=1,
+        help="Save every Nth image when --save-visualizations is set (default: 1, save all).",
+    )
+    parser.add_argument(
         "--save-pred-txt",
         action="store_true",
         help="Save normalized prediction TXT files during the detailed prediction pass.",
@@ -157,6 +164,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-images must be >= 0")
     if args.samples_per_landmark < 0:
         raise ValueError("--samples-per-landmark must be >= 0")
+    if args.visualization_stride < 1:
+        raise ValueError("--visualization-stride must be >= 1")
     data_cfg = yaml_load(args.data)
     if data_cfg.get("channels") != 1 or data_cfg.get("input_semantics") != "gray1":
         raise ValueError("Dataset YAML must declare channels: 1 and input_semantics: gray1")
@@ -169,6 +178,55 @@ def first_conv_in_channels(model: YOLO) -> int:
         if hasattr(module, "in_channels") and hasattr(module, "weight"):
             return int(module.in_channels)
     raise RuntimeError("Unable to locate the first convolution")
+
+
+def save_bright_blue_prediction(result, output_path: Path) -> None:
+    """Save a Gray1 prediction overlay with bright-blue boxes, labels, and keypoints."""
+    annotated = result.orig_img.copy()
+    if annotated.ndim == 2:
+        annotated = cv2.cvtColor(annotated, cv2.COLOR_GRAY2BGR)
+    elif annotated.shape[2] == 1:
+        annotated = cv2.cvtColor(annotated, cv2.COLOR_GRAY2BGR)
+    height, width = annotated.shape[:2]
+    boxes = result.boxes
+    if boxes is not None:
+        line_width = max(round(sum(annotated.shape[:2]) * 0.003 / 2), 2)
+        font_scale = line_width / 3
+        text_thickness = max(line_width - 1, 1)
+        for detection in boxes:
+            x1, y1, x2, y2 = (int(round(value)) for value in detection.xyxy.squeeze().tolist())
+            x1, x2 = sorted((max(0, min(x1, width - 1)), max(0, min(x2, width - 1))))
+            y1, y2 = sorted((max(0, min(y1, height - 1)), max(0, min(y2, height - 1))))
+            class_id = int(detection.cls.item())
+            label = f"{result.names[class_id]} {float(detection.conf.item()):.2f}"
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), BRIGHT_BLUE_BGR, line_width, cv2.LINE_AA)
+            (_, text_height), baseline = cv2.getTextSize(
+                label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_thickness
+            )
+            text_y = y1 - baseline - 3 if y1 >= text_height + baseline + 6 else y1 + text_height + baseline + 3
+            text_origin = (x1, min(text_y, height - baseline - 1))
+            cv2.putText(
+                annotated, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX, font_scale,
+                (0, 0, 0), text_thickness + 2, cv2.LINE_AA,
+            )
+            cv2.putText(
+                annotated, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX, font_scale,
+                BRIGHT_BLUE_BGR, text_thickness, cv2.LINE_AA,
+            )
+    keypoints = result.keypoints
+    if keypoints is not None:
+        for detection_keypoints in keypoints.data.detach().cpu().numpy():
+            for keypoint in detection_keypoints:
+                x_coord, y_coord = float(keypoint[0]), float(keypoint[1])
+                if len(keypoint) == 3 and float(keypoint[2]) < 0.5:
+                    continue
+                if 0 < x_coord < width and 0 < y_coord < height:
+                    cv2.circle(
+                        annotated, (int(round(x_coord)), int(round(y_coord))), 5,
+                        BRIGHT_BLUE_BGR, thickness=-1, lineType=cv2.LINE_AA,
+                    )
+    if not cv2.imwrite(str(output_path), annotated):
+        raise OSError(f"Unable to save prediction visualization: {output_path}")
 
 
 def predict_gray1_batches(
@@ -455,8 +513,9 @@ def run_custom_metrics(
 ) -> dict[str, object]:
     """Run prediction and calculate detection and normalized keypoint metrics."""
 
-    prediction_dir = output_dir / "predictions"
-    prediction_dir.mkdir(parents=True, exist_ok=True)
+    visualization_dir = output_dir / "visualizations"
+    if args.save_visualizations:
+        visualization_dir.mkdir(parents=True, exist_ok=True)
     predict_kwargs = {
         "imgsz": args.imgsz,
         "batch": args.batch,
@@ -465,12 +524,12 @@ def run_custom_metrics(
         "conf": args.conf,
         "iou": args.iou,
         "max_det": 300,
-        "save": args.save_visualizations,
+        # Save selected results below, after the batch predictor returns one
+        # result per source image. Ultralytics' built-in save flag writes every
+        # prediction and therefore cannot implement a visualization stride.
+        "save": False,
         "save_txt": args.save_pred_txt,
         "save_conf": args.save_pred_txt,
-        "project": str(prediction_dir),
-        "name": "images",
-        "exist_ok": True,
         "verbose": False,
     }
 
@@ -496,10 +555,14 @@ def run_custom_metrics(
     total_background_images = 0
 
     seen_paths: set[Path] = set()
-    for image_path, result in predict_gray1_batches(
-        model, image_paths, args.batch, args.imgsz, predict_kwargs
+    for image_number, (image_path, result) in enumerate(
+        predict_gray1_batches(model, image_paths, args.batch, args.imgsz, predict_kwargs), start=1
     ):
         seen_paths.add(image_path)
+        if args.save_visualizations and image_number % args.visualization_stride == 0:
+            save_bright_blue_prediction(
+                result, visualization_dir / f"{image_number:05d}_{image_path.stem}_pred.jpg"
+            )
         label_file = labels_dir / f"{image_path.stem}.txt"
         gt = read_label_file(label_file)
         total_gt_instances += len(gt)
@@ -742,6 +805,7 @@ def main() -> None:
         "samples_per_landmark": args.samples_per_landmark,
         "sample_seed": args.sample_seed,
         "sampled_counts_by_class_id": {str(key): value for key, value in sampled_counts.items()},
+        "visualization_stride": args.visualization_stride if args.save_visualizations else None,
     }
 
     if not args.skip_val:

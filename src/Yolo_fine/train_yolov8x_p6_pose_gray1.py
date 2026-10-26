@@ -1,4 +1,4 @@
-"""Train a grayscale-native YOLOv8x-pose-p6 model from scratch at 640x640.
+"""Train a grayscale-native YOLOv8x-pose-p6 model from scratch at 640 or 1280.
 
 This model family uses one grayscale channel and does not use pretrained
 three-channel weights or the legacy RChannelOnly transform.
@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
         "--imgsz",
         type=int,
         default=640,
-        help="Fixed square training image size; this training recipe requires 640.",
+        help="Square training image size; supported values are 640 and 1280.",
     )
     parser.add_argument(
         "--batch",
@@ -103,7 +103,7 @@ def parse_args() -> argparse.Namespace:
         "--multi-scale",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Enable dynamic 0.5x-1.5x batch resizing around --imgsz (default: disabled for fixed 640x640 training).",
+        help="Enable dynamic 0.5x-1.5x batch resizing around --imgsz (default: disabled for fixed-size training).",
     )
     parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     parser.add_argument("--name", default="landmarks_yolov8x_p6_pose_gray1_from_scratch")
@@ -176,8 +176,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("Periodic plot intervals must be >= 1.")
     if args.plot_sample_stride < 1 or args.plot_min_images < 1:
         raise ValueError("Plot sample stride and minimum image count must be >= 1.")
-    if args.imgsz != 640:
-        raise ValueError("This training recipe requires --imgsz 640.")
+    if args.imgsz not in (640, 1280):
+        raise ValueError("This training recipe requires --imgsz 640 or 1280.")
 
     model_cfg = yaml_load(args.model_config)
     if model_cfg.get("ch") != 1 or model_cfg.get("nc") != 21 or model_cfg.get("kpt_shape") != [2, 3]:
